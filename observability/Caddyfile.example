@@ -1,0 +1,9 @@
+# EXEMPLO de HTTPS local (Caddy instalado separadamente).
+# Mantenha o backend Rust ouvindo apenas em 127.0.0.1:8080.
+localhost:8443 {
+    # O proxy acessa o backend pelo loopback: bloqueie metricas publicamente.
+    @metrics path /metrics
+    respond @metrics "Forbidden" 403
+
+    reverse_proxy 127.0.0.1:8080
+}
