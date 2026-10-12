@@ -4,6 +4,8 @@ use std::collections::HashMap;
 pub struct Request {
     pub method: String,
     pub path: String,
+    //Versão HTTP preservada para uso futuro
+    #[allow(dead_code)]
     pub version: String,
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,

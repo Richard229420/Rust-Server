@@ -109,7 +109,7 @@ impl Metrics {
                 "rust_http_connections_accepted_total",
                 "counter",
                 "Conexoes TCP aceitas.",
-                self.connections_accepted.load(Ordering::Relaxed) as u64,
+                self.connections_accepted.load(Ordering::Relaxed),
             ),
             (
                 "rust_http_workers_active",

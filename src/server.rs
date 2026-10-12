@@ -18,6 +18,13 @@ use self::metrics::Metrics;
 #[path = "security.rs"]
 mod security;
 
+#[path = "api.rs"]
+mod api;
+use self::api::{Api, ApiResponse};
+
+// Compartilhada pelos workers; estado interno sincronizado por RwLock.
+static API: std::sync::OnceLock<Api> = std::sync::OnceLock::new();
+
 const WORKER_COUNT: usize = 16;
 const QUEUE_CAPACITY: usize = 128;
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
@@ -164,6 +171,38 @@ impl Server {
         stream
             .write_all(&protected)
             .map_err(|error| error.to_string())?;
+        metrics.respond(response.status, accepted_at.elapsed());
+        Ok(())
+    }
+
+    // Emite HTTP JSON, preserva headers defensivos e metricas existentes.
+    fn send_api_response(
+        stream: &mut TcpStream,
+        response: &ApiResponse,
+        metrics: &Metrics,
+        accepted_at: Instant,
+    ) -> Result<(), String> {
+        let mut headers = format!(
+            "HTTP/1.1 {} {}\r\nConnection: close\r\nCache-Control: no-store\r\n{SECURITY_HEADERS}",
+            response.status, response.reason
+        );
+        for (name, value) in &response.extra_headers {
+            headers.push_str(&format!("{name}: {value}\r\n"));
+        }
+        // RFC 9110: a resposta 204 nao contem body ou Content-Length.
+        if response.status != 204 {
+            headers.push_str("Content-Type: application/json; charset=utf-8\r\n");
+            headers.push_str(&format!("Content-Length: {}\r\n", response.body.len()));
+        }
+        headers.push_str("\r\n");
+        stream
+            .write_all(headers.as_bytes())
+            .map_err(|error| error.to_string())?;
+        if response.status != 204 {
+            stream
+                .write_all(response.body.as_bytes())
+                .map_err(|error| error.to_string())?;
+        }
         metrics.respond(response.status, accepted_at.elapsed());
         Ok(())
     }
@@ -389,6 +428,27 @@ impl Server {
                 Self::send_response(&mut stream, &response, metrics, accepted_at)?;
                 403
             };
+            logger::log_request(
+                &request.method,
+                &request.path,
+                status,
+                accepted_at.elapsed(),
+            );
+            return Ok(());
+        }
+
+        // Fase 5: API JSON depois da validacao HTTP e antes das rotas HTML.
+        if request.path == "/api" || request.path.starts_with("/api/") {
+            let api = API.get_or_init(Api::new);
+            let response = api.handle(
+                &request.method,
+                &request.path,
+                &request.headers,
+                &request.body,
+                &buffer[..header_end],
+            );
+            let status = response.status;
+            Self::send_api_response(&mut stream, &response, metrics, accepted_at)?;
             logger::log_request(
                 &request.method,
                 &request.path,
