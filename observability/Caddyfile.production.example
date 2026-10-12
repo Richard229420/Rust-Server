@@ -1,0 +1,18 @@
+# EXEMPLO, NAO UTILIZAR SEM AUDITORIA DE SEGURANCA.
+# Substituir server.example.com por dominio proprio com DNS configurado.
+# Nao iniciar este arquivo no projeto educacional sem isolamento,
+# revisao do parser, rate limit, controle de acesso e testes adicionais.
+server.example.com {
+    # Em producao, Caddy gerencia os certificados publicamente confiaveis.
+    # Nao usar "tls internal" para navegadores externos.
+    @private_metrics path /metrics /metrics/*
+    respond @private_metrics "Forbidden" 403
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+    }
+    reverse_proxy 127.0.0.1:8080
+}

@@ -15,11 +15,17 @@ use crate::router::Router;
 mod metrics;
 use self::metrics::Metrics;
 
+#[path = "security.rs"]
+mod security;
+
 const WORKER_COUNT: usize = 16;
 const QUEUE_CAPACITY: usize = 128;
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+
+// Headers fixos de defesa em profundidade (nao enviar HSTS em HTTP).
+const SECURITY_HEADERS: &str = "X-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'\r\n";
 
 pub struct Server {
     listener: TcpListener,
@@ -145,8 +151,18 @@ impl Server {
         metrics: &Metrics,
         accepted_at: Instant,
     ) -> Result<(), String> {
+        // Acrescenta headers defensivos sem alterar Response/router.rs.
+        let bytes = response.to_bytes();
+        let boundary = bytes
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .ok_or_else(|| "Resposta HTTP sem separador de headers".to_string())?;
+        let mut protected = Vec::with_capacity(bytes.len() + SECURITY_HEADERS.len());
+        protected.extend_from_slice(&bytes[..boundary + 2]);
+        protected.extend_from_slice(SECURITY_HEADERS.as_bytes());
+        protected.extend_from_slice(&bytes[boundary + 2..]);
         stream
-            .write_all(&response.to_bytes())
+            .write_all(&protected)
             .map_err(|error| error.to_string())?;
         metrics.respond(response.status, accepted_at.elapsed());
         Ok(())
@@ -162,7 +178,7 @@ impl Server {
         accepted_at: Instant,
     ) -> Result<(), String> {
         let head = format!(
-            "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n{SECURITY_HEADERS}\r\n",
             body.len()
         );
         stream
@@ -266,6 +282,14 @@ impl Server {
             .map(|pos| pos + 4)
             .ok_or_else(|| "Final dos headers nao encontrado".to_string())?;
 
+        // Verificacao estrita sobre os bytes originais, antes do parser legado.
+        // Evita interpretacoes divergentes entre o proxy HTTP e o backend.
+        if let Err(error) = security::validate_request_head(&buffer[..header_end]) {
+            let response = Response::new(400, "<h1>400</h1><p>Bad Request</p>");
+            Self::send_response(&mut stream, &response, metrics, accepted_at)?;
+            return Err(format!("Cabecalho HTTP rejeitado: {error}"));
+        }
+
         let mut request = match Request::parse(&buffer[..header_end]) {
             Ok(request) => request,
             Err(error) => {
@@ -275,7 +299,15 @@ impl Server {
             }
         };
 
-        let content_length = Request::content_length(&request.headers)?;
+        // Erros de Content-Length devem gerar uma resposta HTTP (nao apenas EOF).
+        let content_length = match Request::content_length(&request.headers) {
+            Ok(length) => length,
+            Err(error) => {
+                let response = Response::new(400, "<h1>400</h1><p>Bad Request</p>");
+                Self::send_response(&mut stream, &response, metrics, accepted_at)?;
+                return Err(format!("Content-Length rejeitado: {error}"));
+            }
+        };
         let total_size = match header_end.checked_add(content_length) {
             Some(size) if size <= config.max_request_size => size,
             _ => {
@@ -284,6 +316,13 @@ impl Server {
                 return Err("Body excede o limite permitido.".to_string());
             }
         };
+        // Somente uma requisicao por conexao: bytes excedentes nao sao
+        // interpretados como uma segunda mensagem/pipeline.
+        if buffer.len() > total_size {
+            let response = Response::new(400, "<h1>400</h1><p>Bad Request</p>");
+            Self::send_response(&mut stream, &response, metrics, accepted_at)?;
+            return Err("Bytes extras apos o corpo HTTP (pipelining nao suportado)".to_string());
+        }
         while buffer.len() < total_size {
             let remaining = total_size - buffer.len();
             let size = remaining.min(chunk.len());

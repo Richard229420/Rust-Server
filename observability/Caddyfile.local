@@ -1,0 +1,28 @@
+# Fase 4 - HTTPS local, nao destinado a exposicao publica.
+# Backend Rust: 127.0.0.1:8080; TLS no Caddy: https://localhost:8443
+{
+    auto_https disable_redirects
+}
+
+localhost:8443 {
+    bind 127.0.0.1
+    tls internal
+
+    # O Caddy chega ao backend por loopback, por isso a verificacao de
+    # peer_addr() no Rust NAO impede a exposicao de metricas pelo proxy.
+    @private_metrics path /metrics /metrics/*
+    respond @private_metrics "Forbidden" 403
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+    }
+
+    reverse_proxy 127.0.0.1:8080 {
+        transport http {
+            dial_timeout 3s
+            response_header_timeout 20s
+        }
+    }
+}
