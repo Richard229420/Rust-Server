@@ -1,28 +1,38 @@
-# Fase 4 - HTTPS local, nao destinado a exposicao publica.
-# Backend Rust: 127.0.0.1:8080; TLS no Caddy: https://localhost:8443
+# Refinamento da Fase 4: HTTPS local e headers sem duplicacao.
+# Somente localhost; NAO exponha publicamente esta configuracao.
 {
-    auto_https disable_redirects
+	auto_https disable_redirects
 }
 
 localhost:8443 {
-    bind 127.0.0.1
-    tls internal
+	bind 127.0.0.1
+	tls internal
 
-    # O Caddy chega ao backend por loopback, por isso a verificacao de
-    # peer_addr() no Rust NAO impede a exposicao de metricas pelo proxy.
-    @private_metrics path /metrics /metrics/*
-    respond @private_metrics "Forbidden" 403
+	# Metrics continua privado mesmo quando o backend recebe conexoes do proxy em loopback.
+	@private_metrics path /metrics /metrics/*
+	respond @private_metrics "Forbidden" 403
 
-    header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options DENY
-        Referrer-Policy no-referrer
-    }
+	# O Caddy e a camada responsavel pelos headers de seguranca em HTTPS.
+	# defer aplica a alteracao na hora de enviar a resposta, apos o proxy.
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+		defer
+	}
 
-    reverse_proxy 127.0.0.1:8080 {
-        transport http {
-            dial_timeout 3s
-            response_header_timeout 20s
-        }
-    }
+	reverse_proxy 127.0.0.1:8080 {
+		# No acesso direto HTTP, o Rust continua enviando seus proprios headers.
+		# Pelo Caddy, removemos a copia vinda do Rust e aplicamos uma unica vez acima.
+		header_down -X-Content-Type-Options
+		header_down -X-Frame-Options
+		header_down -Referrer-Policy
+		header_down -Content-Security-Policy
+
+		transport http {
+			dial_timeout 3s
+			response_header_timeout 20s
+		}
+	}
 }
