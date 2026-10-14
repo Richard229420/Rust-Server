@@ -1,8 +1,13 @@
 //! Fase 5: API REST JSON versionada, sem framework web.
-//! Dados apenas em memoria; destinada ao laboratorio local.
+//! Persistencia SQLite duravel, mantendo contrato HTTP/JSON da Fase 5.
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::RwLock;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Mutex;
+
+#[path = "api/sqlite_store.rs"]
+mod sqlite_store;
+use self::sqlite_store::{Store, StoreError};
 
 use serde_json::{Value, json};
 
@@ -23,13 +28,8 @@ impl User {
     }
 }
 
-struct State {
-    next_id: u64,
-    users: BTreeMap<u64, User>,
-}
-
 pub struct Api {
-    state: RwLock<State>,
+    store: Mutex<Store>,
 }
 
 pub struct ApiResponse {
@@ -93,12 +93,44 @@ struct UserInput {
 }
 
 impl Api {
+    // Falha na abertura do DB deve impedir o boot, nao gerar fallback silencioso.
     pub fn new() -> Self {
+        let path = std::env::var("RUST_SERVER_DB_PATH")
+            .unwrap_or_else(|_| "data/users.sqlite3".to_owned());
+        let store = Store::open_file(Path::new(&path))
+            .unwrap_or_else(|error| panic!("Nao foi possivel abrir SQLite em {path}: {error}"));
         Self {
-            state: RwLock::new(State {
-                next_id: 1,
-                users: BTreeMap::new(),
-            }),
+            store: Mutex::new(store),
+        }
+    }
+
+    #[cfg(test)]
+    fn in_memory() -> Self {
+        Self {
+            store: Mutex::new(Store::in_memory()),
+        }
+    }
+
+    fn storage_error(error: StoreError) -> ApiResponse {
+        match error {
+            StoreError::EmailConflict => {
+                ApiResponse::error(409, "Conflict", "email_conflict", "Email ja cadastrado")
+            }
+            StoreError::Capacity => ApiResponse::error(
+                503,
+                "Service Unavailable",
+                "capacity_reached",
+                "Limite de usuarios do laboratorio atingido",
+            ),
+            StoreError::Sql(error) => {
+                eprintln!("[ERROR] SQLite: {error}");
+                ApiResponse::error(
+                    500,
+                    "Internal Server Error",
+                    "database_error",
+                    "Erro ao acessar dados",
+                )
+            }
         }
     }
 
@@ -210,35 +242,32 @@ impl Api {
             Ok(pagination) => pagination,
             Err(error) => return error,
         };
-        let state = self
-            .state
-            .read()
+        let store = self
+            .store
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let users: Vec<Value> = state
-            .users
-            .values()
-            .skip(offset)
-            .take(limit)
-            .map(User::to_json)
-            .collect();
-        ApiResponse::json(
-            200,
-            "OK",
-            json!({
-                "data": users,
-                "pagination": {"total": state.users.len(), "limit": limit, "offset": offset}
-            }),
-        )
+        match store.list(limit, offset) {
+            Ok((users, total)) => ApiResponse::json(
+                200,
+                "OK",
+                json!({
+                    "data": users.iter().map(User::to_json).collect::<Vec<_>>(),
+                    "pagination": {"total": total, "limit": limit, "offset": offset}
+                }),
+            ),
+            Err(error) => Self::storage_error(error),
+        }
     }
 
     fn get(&self, id: u64) -> ApiResponse {
-        let state = self
-            .state
-            .read()
+        let store = self
+            .store
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match state.users.get(&id) {
-            Some(user) => ApiResponse::json(200, "OK", json!({"data": user.to_json()})),
-            None => ApiResponse::not_found(),
+        match store.get(id) {
+            Ok(Some(user)) => ApiResponse::json(200, "OK", json!({"data": user.to_json()})),
+            Ok(None) => ApiResponse::not_found(),
+            Err(error) => Self::storage_error(error),
         }
     }
 
@@ -247,43 +276,24 @@ impl Api {
             Ok(input) => input,
             Err(error) => return error,
         };
-        let mut state = self
-            .state
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.users.len() >= MAX_USERS {
-            return ApiResponse::error(
-                503,
-                "Service Unavailable",
-                "capacity_reached",
-                "Limite de usuarios do laboratorio atingido",
-            );
-        }
         let name = input.name.unwrap_or_default();
         let email = input.email.unwrap_or_default();
-        if email_in_use(&state.users, &email, None) {
-            return ApiResponse::error(409, "Conflict", "email_conflict", "Email ja cadastrado");
-        }
-        let id = state.next_id;
-        state.next_id = match id.checked_add(1) {
-            Some(value) => value,
-            None => {
-                return ApiResponse::error(
-                    503,
-                    "Service Unavailable",
-                    "capacity_reached",
-                    "IDs esgotados",
-                );
+        let mut store = self
+            .store
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match store.create(&name, &email) {
+            Ok(user) => {
+                let id = user.id;
+                let mut response =
+                    ApiResponse::json(201, "Created", json!({"data": user.to_json()}));
+                response
+                    .extra_headers
+                    .push(("Location", format!("/api/v1/users/{id}")));
+                response
             }
-        };
-        let user = User { id, name, email };
-        let body = json!({"data": user.to_json()});
-        state.users.insert(id, user);
-        let mut response = ApiResponse::json(201, "Created", body);
-        response
-            .extra_headers
-            .push(("Location", format!("/api/v1/users/{id}")));
-        response
+            Err(error) => Self::storage_error(error),
+        }
     }
 
     fn update(&self, id: u64, body: &[u8], partial: bool) -> ApiResponse {
@@ -291,40 +301,26 @@ impl Api {
             Ok(input) => input,
             Err(error) => return error,
         };
-        let mut state = self
-            .state
-            .write()
+        let mut store = self
+            .store
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !state.users.contains_key(&id) {
-            return ApiResponse::not_found();
+        match store.update(id, input.name, input.email) {
+            Ok(Some(user)) => ApiResponse::json(200, "OK", json!({"data": user.to_json()})),
+            Ok(None) => ApiResponse::not_found(),
+            Err(error) => Self::storage_error(error),
         }
-        if let Some(ref email) = input.email
-            && email_in_use(&state.users, email, Some(id))
-        {
-            return ApiResponse::error(409, "Conflict", "email_conflict", "Email ja cadastrado");
-        }
-        let user = state
-            .users
-            .get_mut(&id)
-            .expect("id verificado sob write lock");
-        if let Some(name) = input.name {
-            user.name = name;
-        }
-        if let Some(email) = input.email {
-            user.email = email;
-        }
-        ApiResponse::json(200, "OK", json!({"data": user.to_json()}))
     }
 
     fn delete(&self, id: u64) -> ApiResponse {
-        let mut state = self
-            .state
-            .write()
+        let mut store = self
+            .store
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.users.remove(&id).is_some() {
-            ApiResponse::no_content()
-        } else {
-            ApiResponse::not_found()
+        match store.delete(id) {
+            Ok(true) => ApiResponse::no_content(),
+            Ok(false) => ApiResponse::not_found(),
+            Err(error) => Self::storage_error(error),
         }
     }
 }
@@ -459,12 +455,6 @@ fn valid_email(value: &str) -> bool {
         .all(|part| !part.is_empty() && !part.starts_with('-') && !part.ends_with('-'))
 }
 
-fn email_in_use(users: &BTreeMap<u64, User>, email: &str, except_id: Option<u64>) -> bool {
-    users
-        .values()
-        .any(|user| Some(user.id) != except_id && user.email == email)
-}
-
 fn parse_pagination(query: Option<&str>) -> Result<(usize, usize), ApiResponse> {
     let mut limit = 20;
     let mut offset = 0;
@@ -513,7 +503,7 @@ mod tests {
 
     #[test]
     fn create_and_get_user() {
-        let api = Api::new();
+        let api = Api::in_memory();
         let created = call(
             &api,
             "POST",
@@ -529,7 +519,7 @@ mod tests {
 
     #[test]
     fn duplicate_email_rejected_case_insensitive() {
-        let api = Api::new();
+        let api = Api::in_memory();
         assert_eq!(
             call(
                 &api,
@@ -554,7 +544,7 @@ mod tests {
 
     #[test]
     fn reject_invalid_json_and_unexpected_fields() {
-        let api = Api::new();
+        let api = Api::in_memory();
         assert_eq!(call(&api, "POST", "/api/v1/users", "{").status, 400);
         assert_eq!(
             call(
@@ -570,7 +560,7 @@ mod tests {
 
     #[test]
     fn put_patch_and_delete() {
-        let api = Api::new();
+        let api = Api::in_memory();
         assert_eq!(
             call(
                 &api,
@@ -601,7 +591,7 @@ mod tests {
 
     #[test]
     fn pagination_and_method_validation() {
-        let api = Api::new();
+        let api = Api::in_memory();
         assert_eq!(
             call(&api, "GET", "/api/v1/users?limit=2&offset=0", "").status,
             200
@@ -614,8 +604,62 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_persists_after_reopening() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("relogio")
+            .as_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("rust-server-sqlite-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("diretorio temporario");
+        let path = directory.join("users.sqlite3");
+        {
+            let api = Api {
+                store: Mutex::new(Store::open_file(&path).expect("abrir banco")),
+            };
+            let created = call(
+                &api,
+                "POST",
+                "/api/v1/users",
+                r#"{"name":"Ana","email":"ana@example.com"}"#,
+            );
+            assert_eq!(created.status, 201);
+        }
+        {
+            let api = Api {
+                store: Mutex::new(Store::open_file(&path).expect("reabrir banco")),
+            };
+            assert_eq!(call(&api, "GET", "/api/v1/users/1", "").status, 200);
+            assert_eq!(
+                call(
+                    &api,
+                    "POST",
+                    "/api/v1/users",
+                    r#"{"name":"Duplicada","email":"ANA@EXAMPLE.COM"}"#
+                )
+                .status,
+                409
+            );
+            assert_eq!(call(&api, "DELETE", "/api/v1/users/1", "").status, 204);
+            assert_eq!(
+                call(
+                    &api,
+                    "POST",
+                    "/api/v1/users",
+                    r#"{"name":"Bia","email":"bia@example.com"}"#
+                )
+                .status,
+                201
+            );
+            assert_eq!(call(&api, "GET", "/api/v1/users/2", "").status, 200);
+        }
+        std::fs::remove_dir_all(&directory).expect("remover diretorio temporario");
+    }
+
+    #[test]
     fn reject_duplicate_content_type_header() {
-        let api = Api::new();
+        let api = Api::in_memory();
         let raw = b"POST /api/v1/users HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n";
         assert_eq!(
             api.handle("POST", "/api/v1/users", &headers(), b"{}", raw)

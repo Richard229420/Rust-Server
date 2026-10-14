@@ -1,3 +1,6 @@
 /target
 *.rs.bak
 *.log
+
+# Banco SQLite local, WAL e SHM
+/data/

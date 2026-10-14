@@ -55,6 +55,8 @@ impl Drop for WorkerGuard {
 
 impl Server {
     pub fn new(config: Config) -> Self {
+        // Falha antecipadamente caso o banco SQLite seja incompativel.
+        let _ = API.get_or_init(Api::new);
         let address = config.address();
         let listener = TcpListener::bind(&address)
             .unwrap_or_else(|error| panic!("Erro ao iniciar servidor em {address}: {error}"));
