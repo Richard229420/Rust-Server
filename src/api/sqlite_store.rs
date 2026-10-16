@@ -10,7 +10,7 @@ use rusqlite::{
     TransactionBehavior, params,
 };
 
-use super::{MAX_USERS, User};
+use super::models::{MAX_USERS, User};
 
 #[derive(Debug)]
 pub(super) enum StoreError {
