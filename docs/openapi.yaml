@@ -1,0 +1,747 @@
+# OpenAPI 3.1.1 — Rust Server — Fase 5.3
+# Contrato da versão 5.2, sem alterações no servidor Rust.
+openapi: 3.1.1
+info:
+  title: Rust Server — API REST de Usuários
+  version: 0.5.3
+  description: Contrato HTTP/JSON da API REST educacional implementada em Rust (Fase 5.2), documentado no refinamento
+    5.3. Os registros são persistidos em SQLite. Este documento descreve somente /api/v1/users; /health e /metrics
+    continuam operacionais mas não fazem parte do contrato CRUD. No laboratório não há autenticação nem autorização.
+    Não exponha esta API à internet. Requisições POST/PUT/PATCH exigem Content-Length, Content-Type application/json
+    (opcionalmente charset=utf-8) e JSON com no máximo 4096 bytes. Erros gerados pelo roteador/API usam o envelope
+    ErrorEnvelope; falhas rejeitadas antes pelo parser HTTP ou pelo proxy podem ter outros corpos e códigos.
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+- url: https://localhost:8443
+  description: Caddy local com TLS e CA privada; requer confiar no certificado raiz local.
+- url: http://127.0.0.1:8080
+  description: Servidor Rust diretamente no loopback, sem TLS (apenas desenvolvimento).
+tags:
+- name: Users
+  description: Operações CRUD sobre usuários armazenados em SQLite.
+security: []
+paths:
+  /api/v1/users:
+    get:
+      tags:
+      - Users
+      summary: Listar usuários
+      operationId: listUsers
+      description: 'Ordenados por ID crescente. Padrão: limit=20 e offset=0. Parâmetros repetidos, desconhecidos
+        ou não numéricos são rejeitados. GET não aceita corpo.'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListEnvelope'
+              example:
+                data:
+                - id: 1
+                  name: Ana Silva
+                  email: ana@example.com
+                pagination:
+                  total: 1
+                  limit: 20
+                  offset: 0
+        '400':
+          description: Parâmetros de paginação inválidos, duplicados ou não reconhecidos; também pode ocorrer
+            com corpo em GET.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: bad_request
+                  message: Requisicao invalida
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para a coleção.
+              schema:
+                type: string
+                const: GET, POST
+              example: GET, POST
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+    post:
+      tags:
+      - Users
+      summary: Criar usuário
+      operationId: createUser
+      description: 'Cria usuário com nome e e-mail; ambos obrigatórios. E-mail não pode estar duplicado, ignorando
+        caixa. Limite total do laboratório: 1000 usuários.'
+      requestBody:
+        required: true
+        description: Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: Usuário criado.
+          headers:
+            Location:
+              description: Caminho relativo do usuário criado.
+              schema:
+                type: string
+                pattern: ^/api/v1/users/[0-9]+$
+              example: /api/v1/users/1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              example:
+                data:
+                  id: 1
+                  name: Ana Silva
+                  email: ana@example.com
+        '400':
+          description: Corpo ausente ou JSON inválido (ou bad_request para metadados inválidos).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: invalid_json
+                  message: JSON malformado
+        '409':
+          description: Email ja cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: email_conflict
+                  message: Email ja cadastrado
+        '411':
+          description: Envie Content-Length
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: length_required
+                  message: Envie Content-Length
+        '413':
+          description: JSON excede 4096 bytes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: payload_too_large
+                  message: JSON excede 4096 bytes
+        '415':
+          description: 'Use Content-Type: application/json'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: unsupported_media_type
+                  message: 'Use Content-Type: application/json'
+        '422':
+          description: name ou email invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: validation_error
+                  message: name ou email invalido
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para a coleção.
+              schema:
+                type: string
+                const: GET, POST
+              example: GET, POST
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+        '503':
+          description: Limite de usuarios do laboratorio atingido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: capacity_reached
+                  message: Limite de usuarios do laboratorio atingido
+  /api/v1/users/{id}:
+    parameters:
+    - $ref: '#/components/parameters/UserId'
+    get:
+      tags:
+      - Users
+      summary: Consultar usuário
+      operationId: getUser
+      description: Consulta por ID. IDs inválidos retornam 400, recursos ausentes retornam 404. GET não aceita
+        corpo ou query string.
+      responses:
+        '200':
+          description: Usuário encontrado ou atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              example:
+                data:
+                  id: 1
+                  name: Ana Silva
+                  email: ana@example.com
+        '400':
+          description: Requisicao invalida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: bad_request
+                  message: Requisicao invalida
+        '404':
+          description: Recurso nao encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: not_found
+                  message: Recurso nao encontrado
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para o recurso.
+              schema:
+                type: string
+                const: GET, PUT, PATCH, DELETE
+              example: GET, PUT, PATCH, DELETE
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+    put:
+      tags:
+      - Users
+      summary: Substituir dados do usuário
+      operationId: replaceUser
+      description: Exige name e email. IDs ausentes retornam 404, e-mail utilizado por outra pessoa retorna
+        409.
+      requestBody:
+        required: true
+        description: Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '200':
+          description: Usuário encontrado ou atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              example:
+                data:
+                  id: 1
+                  name: Ana Silva
+                  email: ana@example.com
+        '400':
+          description: JSON malformado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: invalid_json
+                  message: JSON malformado
+        '404':
+          description: Recurso nao encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: not_found
+                  message: Recurso nao encontrado
+        '409':
+          description: Email ja cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: email_conflict
+                  message: Email ja cadastrado
+        '411':
+          description: Envie Content-Length
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: length_required
+                  message: Envie Content-Length
+        '413':
+          description: JSON excede 4096 bytes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: payload_too_large
+                  message: JSON excede 4096 bytes
+        '415':
+          description: 'Use Content-Type: application/json'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: unsupported_media_type
+                  message: 'Use Content-Type: application/json'
+        '422':
+          description: name ou email invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: validation_error
+                  message: name ou email invalido
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para o recurso.
+              schema:
+                type: string
+                const: GET, PUT, PATCH, DELETE
+              example: GET, PUT, PATCH, DELETE
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+    patch:
+      tags:
+      - Users
+      summary: Atualizar parcialmente o usuário
+      operationId: patchUser
+      description: É obrigatório fornecer ao menos name ou email. Outros campos são rejeitados.
+      requestBody:
+        required: true
+        description: Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPatch'
+      responses:
+        '200':
+          description: Usuário encontrado ou atualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+              example:
+                data:
+                  id: 1
+                  name: Ana Silva
+                  email: ana@example.com
+        '400':
+          description: JSON malformado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: invalid_json
+                  message: JSON malformado
+        '404':
+          description: Recurso nao encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: not_found
+                  message: Recurso nao encontrado
+        '409':
+          description: Email ja cadastrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: email_conflict
+                  message: Email ja cadastrado
+        '411':
+          description: Envie Content-Length
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: length_required
+                  message: Envie Content-Length
+        '413':
+          description: JSON excede 4096 bytes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: payload_too_large
+                  message: JSON excede 4096 bytes
+        '415':
+          description: 'Use Content-Type: application/json'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: unsupported_media_type
+                  message: 'Use Content-Type: application/json'
+        '422':
+          description: name ou email invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: validation_error
+                  message: name ou email invalido
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para o recurso.
+              schema:
+                type: string
+                const: GET, PUT, PATCH, DELETE
+              example: GET, PUT, PATCH, DELETE
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+    delete:
+      tags:
+      - Users
+      summary: Excluir usuário
+      operationId: deleteUser
+      description: Remove o registro, sem reutilização posterior do ID. DELETE não aceita corpo ou query string.
+      responses:
+        '204':
+          description: Excluído com sucesso. Resposta sem corpo e sem Content-Length.
+        '400':
+          description: Requisicao invalida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: bad_request
+                  message: Requisicao invalida
+        '404':
+          description: Recurso nao encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: not_found
+                  message: Recurso nao encontrado
+        '405':
+          description: Metodo HTTP nao permitido nesta rota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: Metodo HTTP nao permitido nesta rota
+          headers:
+            Allow:
+              description: Métodos permitidos para o recurso.
+              schema:
+                type: string
+                const: GET, PUT, PATCH, DELETE
+              example: GET, PUT, PATCH, DELETE
+        '500':
+          description: Erro ao acessar dados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                error:
+                  code: database_error
+                  message: Erro ao acessar dados
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Quantidade de usuários por página (padrão 20).
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+    Offset:
+      name: offset
+      in: query
+      description: Índice inicial (padrão 0).
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      example: 0
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Identificador positivo em decimal.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      example: 1
+  schemas:
+    User:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - email
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          readOnly: true
+          description: ID gerado pelo SQLite; não é reutilizado após exclusão.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Nome após trim; caracteres de controle não são aceitos.
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: E-mail ASCII válido, convertido para minúsculas; comparação de unicidade sem diferenciar
+            maiúsculas/minúsculas.
+      example:
+        id: 1
+        name: Ana Silva
+        email: ana@example.com
+    UserCreate:
+      type: object
+      additionalProperties: false
+      minProperties: 2
+      required:
+      - name
+      - email
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Nome sem caracteres de controle (trim aplicado).
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: E-mail ASCII; normalizado para minúsculas.
+      example:
+        name: Ana Silva
+        email: ana@example.com
+    UserPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+      example:
+        name: Ana Atualizada
+    UserEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/User'
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+      - total
+      - limit
+      - offset
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+    UserListEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ApiError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          description: Identificador estável do erro (por exemplo, validation_error).
+        message:
+          type: string
+          description: Mensagem explicativa em português.
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ApiError'
