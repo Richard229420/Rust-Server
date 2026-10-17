@@ -20,6 +20,9 @@ mod security;
 
 #[path = "api.rs"]
 mod api;
+
+#[path = "auth.rs"]
+mod auth;
 use self::api::{Api, ApiResponse};
 
 // Compartilhada pelos workers; estado interno sincronizado por RwLock.
@@ -57,6 +60,8 @@ impl Server {
     pub fn new(config: Config) -> Self {
         // Falha antecipadamente caso o banco SQLite seja incompativel.
         let _ = API.get_or_init(Api::new);
+        auth::initialize()
+            .unwrap_or_else(|error| panic!("Falha no banco de autenticacao: {error}"));
         let address = config.address();
         let listener = TcpListener::bind(&address)
             .unwrap_or_else(|error| panic!("Erro ao iniciar servidor em {address}: {error}"));
