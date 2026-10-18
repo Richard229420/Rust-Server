@@ -445,6 +445,55 @@ impl Server {
         }
 
         // Fase 5: API JSON depois da validacao HTTP e antes das rotas HTML.
+        // Fase 6.2: identidade e sessoes antes do CRUD REST; RBAC sera aplicado na 6.3.
+        if let Some(auth_response) = auth::handle_http(
+            &request.method,
+            &request.path,
+            &request.headers,
+            &request.body,
+            &buffer[..header_end],
+        ) {
+            let response = ApiResponse {
+                status: auth_response.status,
+                reason: auth_response.reason,
+                body: auth_response.body,
+                extra_headers: auth_response.extra_headers,
+            };
+            let status = response.status;
+            Self::send_api_response(&mut stream, &response, metrics, accepted_at)?;
+            logger::log_request(
+                &request.method,
+                &request.path,
+                status,
+                accepted_at.elapsed(),
+            );
+            return Ok(());
+        }
+
+        // Fase 6.3: politica RBAC obrigatoria antes do CRUD REST.
+        if let Some(guard_response) = auth::guard_users(
+            &request.method,
+            &request.path,
+            &request.headers,
+            &buffer[..header_end],
+        ) {
+            let response = ApiResponse {
+                status: guard_response.status,
+                reason: guard_response.reason,
+                body: guard_response.body,
+                extra_headers: guard_response.extra_headers,
+            };
+            let status = response.status;
+            Self::send_api_response(&mut stream, &response, metrics, accepted_at)?;
+            logger::log_request(
+                &request.method,
+                &request.path,
+                status,
+                accepted_at.elapsed(),
+            );
+            return Ok(());
+        }
+
         if request.path == "/api" || request.path.starts_with("/api/") {
             let api = API.get_or_init(Api::new);
             let response = api.handle(
