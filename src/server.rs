@@ -446,12 +446,42 @@ impl Server {
 
         // Fase 5: API JSON depois da validacao HTTP e antes das rotas HTML.
         // Fase 6.2: identidade e sessoes antes do CRUD REST; RBAC sera aplicado na 6.3.
+        // Fase 6.4: endpoint Prometheus de seguranca, SOMENTE conexao TCP loopback.
+        if request.path == "/internal/security-metrics" {
+            let local = stream.peer_addr().is_ok_and(|addr| addr.ip().is_loopback());
+            let (status, reason, body) = if local && request.method == "GET" {
+                (200, "OK", auth::security_metrics())
+            } else {
+                (404, "Not Found", String::from("not found\n"))
+            };
+            Self::send_plaintext(
+                &mut stream,
+                status,
+                reason,
+                &body,
+                "text/plain; version=0.0.4; charset=utf-8",
+                metrics,
+                accepted_at,
+            )?;
+            logger::log_request(
+                &request.method,
+                &request.path,
+                status,
+                accepted_at.elapsed(),
+            );
+            return Ok(());
+        }
+
         if let Some(auth_response) = auth::handle_http(
             &request.method,
             &request.path,
             &request.headers,
             &request.body,
             &buffer[..header_end],
+            &stream
+                .peer_addr()
+                .map(|addr| addr.ip().to_string())
+                .unwrap_or_else(|_| "unknown".into()),
         ) {
             let response = ApiResponse {
                 status: auth_response.status,

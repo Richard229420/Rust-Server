@@ -21,7 +21,7 @@ FILES = {
     '/assets/swagger-init.js': ('docs/ui/swagger-init.js', 'application/javascript; charset=utf-8'),
     '/assets/offline.js': ('docs/ui/offline.js', 'application/javascript; charset=utf-8'),
 }
-API_PATH = re.compile(r'^/api/v1/users(?:/[^/]*)?/?$')
+API_PATH = re.compile(r'^/api/v1/(?:users(?:/[^/]*)?/?|auth/(?:login|me|logout))$')
 METHODS = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'}
 
 
@@ -43,7 +43,7 @@ def serve(*, port=8765, backend_port=8080, root=ROOT, verbose=True):
     origins = {f'http://{host}' for host in allowed_host}
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = 'RustLabUI/5.4'
+        server_version = 'RustLabUI/6.3'
         sys_version = ''
         protocol_version = 'HTTP/1.1'
 
@@ -147,6 +147,17 @@ def serve(*, port=8765, backend_port=8080, root=ROOT, verbose=True):
                     return
                 body = None
             headers = {'Accept': self.headers.get('Accept', 'application/json')}
+            # X-Lab-Token e segredo exclusivo da interface; Bearer pertence ao backend.
+            # Nunca encaminhar credenciais a destinos fora de 127.0.0.1:backend_port.
+            auths = self.headers.get_all('Authorization', [])
+            if len(auths) > 1:
+                self.respond(400, b'Authorization duplicado')
+                return
+            if auths:
+                if not re.fullmatch(r'(?i:Bearer) [0-9a-fA-F]{64}', auths[0]):
+                    self.respond(400, b'Authorization invalido')
+                    return
+                headers['Authorization'] = auths[0]
             content_type = self.headers.get('Content-Type')
             if content_type:
                 headers['Content-Type'] = content_type
@@ -164,7 +175,7 @@ def serve(*, port=8765, backend_port=8080, root=ROOT, verbose=True):
                         return
                     keep = {}
                     for key, val in upstream.getheaders():
-                        if key.lower() in {'location', 'allow'}:
+                        if key.lower() in {'location', 'allow', 'www-authenticate'}:
                             keep[key] = val
                     self.respond(upstream.status, payload,
                                  upstream.getheader('Content-Type', 'application/json; charset=utf-8'), keep)
@@ -189,7 +200,7 @@ def serve(*, port=8765, backend_port=8080, root=ROOT, verbose=True):
     httpd.daemon_threads = True
     print(f'[UI] Swagger: http://127.0.0.1:{port}/docs')
     print(f'[UI] Alternativa offline: http://127.0.0.1:{port}/offline')
-    print(f'[UI] Encaminhando somente /api/v1/users* a 127.0.0.1:{backend_port}')
+    print(f'[UI] Encaminhando /api/v1/users* e /api/v1/auth/(login|me|logout) a 127.0.0.1:{backend_port}')
     try:
         httpd.serve_forever(poll_interval=0.1)
     except KeyboardInterrupt:

@@ -29,6 +29,9 @@ fn denied(
     code: &'static str,
     message: &'static str,
 ) -> AuthResponse {
+    if status == 401 || status == 403 {
+        super::security64::note_denial(&super::database_path(), None, status == 403);
+    }
     let mut extra_headers = Vec::new();
     if status == 401 {
         extra_headers.push(("WWW-Authenticate", "Bearer realm=\"rust-server\"".into()));

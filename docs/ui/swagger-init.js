@@ -17,7 +17,7 @@
       supportedSubmitMethods: ['get', 'post', 'put', 'patch', 'delete'],
       requestInterceptor: function (req) {
         const target = new URL(req.url, window.location.href);
-        if (target.origin === window.location.origin && target.pathname.startsWith('/api/v1/users')) {
+        if (target.origin === window.location.origin && (target.pathname === '/api/v1/users' || target.pathname.startsWith('/api/v1/users/') || ['/api/v1/auth/login', '/api/v1/auth/me', '/api/v1/auth/logout'].includes(target.pathname))) {
           req.headers = req.headers || {};
           req.headers['X-Lab-Token'] = document.querySelector('meta[name="lab-token"]').content;
         }

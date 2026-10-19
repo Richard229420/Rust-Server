@@ -5,7 +5,10 @@
 <title>Fase 5.4 | API Explorer Offline</title>
 <link rel="stylesheet" href="/assets/style.css"></head><body>
 <header class="bar"><strong>Rust Server · API REST</strong><span>Explorador offline</span><a href="/docs">Swagger UI</a></header>
-<div class="hint">Esta interface funciona sem CDN. As requisições são enviadas ao Rust pelo proxy local. Evite dados reais.</div>
+<div class="hint">Interface offline 6.3: informe o token Bearer abaixo (obtido pelo login). Nao usa armazenamento local; a pagina esquece o token ao fechar.</div>
+<div class="hint"><label for="bearer-token">Bearer token (64 caracteres hex; nao inclua "Bearer ")</label>
+<input id="bearer-token" type="password" autocomplete="off" spellcheck="false" maxlength="64" style="width:min(90vw,40rem)">
+<button id="clear-bearer-token" type="button">Limpar token</button></div>
 <main class="app"><aside><h2>Operações REST</h2><div id="operations">Carregando contrato OpenAPI…</div><a href="/openapi.json" target="_blank" rel="noreferrer">Ver OpenAPI JSON</a></aside>
 <section class="form"><h1 id="operation-title">Selecione uma operação</h1><p id="description"></p>
 <div id="parameter-fields"></div><div id="body-field" hidden><label for="request-body">Corpo JSON</label><textarea id="request-body" rows="12" spellcheck="false"></textarea></div>

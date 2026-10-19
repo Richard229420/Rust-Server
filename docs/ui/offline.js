@@ -10,6 +10,8 @@
   const title = document.getElementById('operation-title');
   const description = document.getElementById('description');
   const token = document.querySelector('meta[name="lab-token"]').content;
+  const bearerInput = document.getElementById('bearer-token');
+  document.getElementById('clear-bearer-token').addEventListener('click', () => { bearerInput.value = ''; });
   let selected;
   const sample = {
     POST: {name:'Ana Silva',email:'ana@example.com'},
@@ -39,11 +41,11 @@
       description.textContent=entry.op.description || entry.op.summary || '';
       fields.replaceChildren();
       if (entry.path.includes('{id}')) addField('id', 'ID do usuário', '1');
-      if (entry.method==='GET' && !entry.path.includes('{id}')) {
+      if (entry.method==='GET' && entry.path === '/api/v1/users') {
         addField('limit','Limite (1 a 100)','20'); addField('offset','Offset','0');
       }
-      bodyWrap.hidden=!['POST','PUT','PATCH'].includes(entry.method);
-      if (!bodyWrap.hidden) body.value=JSON.stringify(sample[entry.method],null,2);
+      bodyWrap.hidden=!['POST','PUT','PATCH'].includes(entry.method) || entry.path === '/api/v1/auth/logout';
+      if (!bodyWrap.hidden) body.value=JSON.stringify(entry.path === '/api/v1/auth/login' ? {username:'admin',password:''} : sample[entry.method],null,2);
       status.textContent='Nenhuma execução'; result.textContent='—'; execute.disabled=false;
     }
     function addField(name,labelText,defaultValue) {
@@ -58,11 +60,12 @@
     try {
       let path=selected.path;
       if (path.includes('{id}')) path=path.replace('{id}',encodeURIComponent(document.getElementById('field-id').value));
-      else if (selected.method==='GET') {
+      else if (selected.method==='GET' && selected.path === '/api/v1/users') {
         const qs=new URLSearchParams({limit:document.getElementById('field-limit').value,offset:document.getElementById('field-offset').value});
         path+='?'+qs;
       }
       const opts={method:selected.method,headers:{'X-Lab-Token':token,'Accept':'application/json'}};
+      if (bearerInput.value.trim()) opts.headers['Authorization'] = 'Bearer ' + bearerInput.value.trim();
       if (!bodyWrap.hidden) {opts.headers['Content-Type']='application/json';opts.body=body.value;}
       const response=await fetch(path,opts);
       status.textContent=`HTTP ${response.status} ${response.statusText}`;

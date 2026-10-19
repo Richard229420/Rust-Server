@@ -1,6 +1,27 @@
-/target
+# Rust
+/target/
 *.rs.bak
+
+# Logs
 *.log
 
-# Banco SQLite local, WAL e SHM
+# Python
+__pycache__/
+*.py[cod]
+*.py.bak
+*.py.bak2
+
+# Bancos de dados e arquivos locais
 /data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Credenciais e variaveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Arquivos temporarios
+*.tmp
+*.swp

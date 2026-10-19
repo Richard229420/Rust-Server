@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Rust Server — API REST de Usuários",
-    "version": "0.5.3",
-    "description": "Contrato HTTP/JSON da API REST educacional implementada em Rust (Fase 5.2), documentado no refinamento 5.3. Os registros são persistidos em SQLite. Este documento descreve somente /api/v1/users; /health e /metrics continuam operacionais mas não fazem parte do contrato CRUD. No laboratório não há autenticação nem autorização. Não exponha esta API à internet. Requisições POST/PUT/PATCH exigem Content-Length, Content-Type application/json (opcionalmente charset=utf-8) e JSON com no máximo 4096 bytes. Erros gerados pelo roteador/API usam o envelope ErrorEnvelope; falhas rejeitadas antes pelo parser HTTP ou pelo proxy podem ter outros corpos e códigos."
+    "version": "0.6.4",
+    "description": "Fase 6.3: autenticacao Bearer obrigatoria para o CRUD /api/v1/users. viewer pode consultar; editor pode consultar, criar e atualizar; admin pode excluir. Login em POST /api/v1/auth/login nao exige Bearer. /auth/me e /auth/logout exigem Bearer. Os tokens sao opacos e expiram em 3600 segundos; nunca os armazene em logs. Use HTTPS no Caddy; HTTP 127.0.0.1 somente no laboratorio. Respostas de rejeicao pelo parser HTTP podem nao usar o envelope JSON. Fase 6.4: limite por conta e origem TCP, teto de duas verificacoes Argon2id simultaneas; login pode retornar HTTP 429 com Retry-After de 1 ou 60 segundos. As quotas sao volateis; todas as conexoes do Caddy no loopback compartilham a mesma origem TCP."
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "servers": [
@@ -20,9 +20,17 @@
     {
       "name": "Users",
       "description": "Operações CRUD sobre usuários armazenados em SQLite."
+    },
+    {
+      "name": "Auth",
+      "description": "Login, identificacao e revogacao de sessoes."
     }
   ],
-  "security": [],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
   "paths": {
     "/api/v1/users": {
       "get": {
@@ -31,7 +39,7 @@
         ],
         "summary": "Listar usuários",
         "operationId": "listUsers",
-        "description": "Ordenados por ID crescente. Padrão: limit=20 e offset=0. Parâmetros repetidos, desconhecidos ou não numéricos são rejeitados. GET não aceita corpo.",
+        "description": "Ordenados por ID crescente. Padrão: limit=20 e offset=0. Parâmetros repetidos, desconhecidos ou não numéricos são rejeitados. GET não aceita corpo. Requer Bearer com papel viewer/editor/admin.",
         "parameters": [
           {
             "$ref": "#/components/parameters/Limit"
@@ -122,6 +130,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       },
@@ -131,7 +167,7 @@
         ],
         "summary": "Criar usuário",
         "operationId": "createUser",
-        "description": "Cria usuário com nome e e-mail; ambos obrigatórios. E-mail não pode estar duplicado, ignorando caixa. Limite total do laboratório: 1000 usuários.",
+        "description": "Cria usuário com nome e e-mail; ambos obrigatórios. E-mail não pode estar duplicado, ignorando caixa. Limite total do laboratório: 1000 usuários. Requer Bearer editor/admin.",
         "requestBody": {
           "required": true,
           "description": "Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.",
@@ -324,6 +360,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -340,7 +404,7 @@
         ],
         "summary": "Consultar usuário",
         "operationId": "getUser",
-        "description": "Consulta por ID. IDs inválidos retornam 400, recursos ausentes retornam 404. GET não aceita corpo ou query string.",
+        "description": "Consulta por ID. IDs inválidos retornam 400, recursos ausentes retornam 404. GET não aceita corpo ou query string. Requer Bearer com papel viewer/editor/admin.",
         "responses": {
           "200": {
             "description": "Usuário encontrado ou atualizado.",
@@ -432,6 +496,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       },
@@ -441,7 +533,7 @@
         ],
         "summary": "Substituir dados do usuário",
         "operationId": "replaceUser",
-        "description": "Exige name e email. IDs ausentes retornam 404, e-mail utilizado por outra pessoa retorna 409.",
+        "description": "Exige name e email. IDs ausentes retornam 404, e-mail utilizado por outra pessoa retorna 409. Requer Bearer editor/admin.",
         "requestBody": {
           "required": true,
           "description": "Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.",
@@ -624,6 +716,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       },
@@ -633,7 +753,7 @@
         ],
         "summary": "Atualizar parcialmente o usuário",
         "operationId": "patchUser",
-        "description": "É obrigatório fornecer ao menos name ou email. Outros campos são rejeitados.",
+        "description": "É obrigatório fornecer ao menos name ou email. Outros campos são rejeitados. Requer Bearer editor/admin.",
         "requestBody": {
           "required": true,
           "description": "Envie JSON UTF-8, Content-Length explícito e no máximo 4096 bytes de corpo.",
@@ -816,6 +936,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       },
@@ -825,7 +973,7 @@
         ],
         "summary": "Excluir usuário",
         "operationId": "deleteUser",
-        "description": "Remove o registro, sem reutilização posterior do ID. DELETE não aceita corpo ou query string.",
+        "description": "Remove o registro, sem reutilização posterior do ID. DELETE não aceita corpo ou query string. Requer Bearer admin.",
         "responses": {
           "204": {
             "description": "Excluído com sucesso. Resposta sem corpo e sem Content-Length."
@@ -900,6 +1048,189 @@
                     "code": "database_error",
                     "message": "Erro ao acessar dados"
                   }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Conta autenticada sem permissao para a operacao.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Autenticar usuario",
+        "operationId": "login",
+        "description": "Retorna token opaco com TTL de uma hora; envio somente por HTTPS ou loopback.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthLoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token de sessao criado; Cache-Control: no-store.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON invalido ou incompleto."
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Content-Length obrigatorio."
+          },
+          "415": {
+            "description": "Content-Type application/json obrigatorio."
+          },
+          "429": {
+            "description": "Limite temporario de login por conta/origem ou sobrecarga Argon2id.",
+            "headers": {
+              "Retry-After": {
+                "description": "Tempo sugerido para nova tentativa, em segundos (1 ou 60).",
+                "schema": {
+                  "type": "integer",
+                  "enum": [
+                    1,
+                    60
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Consultar identidade",
+        "operationId": "getAuthenticatedPrincipal",
+        "description": "Valida a sessao, a expiracao e o estado da conta no momento da consulta.",
+        "responses": {
+          "200": {
+            "description": "Conta autenticada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthPrincipal"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Revogar token",
+        "operationId": "logout",
+        "description": "Revoga o token enviado no cabecalho Authorization. Nao aceita body.",
+        "responses": {
+          "204": {
+            "description": "Sessao revogada; sem corpo."
+          },
+          "401": {
+            "description": "Token ausente, malformado, expirado, revogado ou conta inativa.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Desafio Bearer.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
                 }
               }
             }
@@ -1115,6 +1446,88 @@
             "$ref": "#/components/schemas/ApiError"
           }
         }
+      },
+      "AuthLoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64,
+            "description": "Login ASCII."
+          },
+          "password": {
+            "type": "string",
+            "description": "Senha. Nunca armazene em logs."
+          }
+        }
+      },
+      "AuthLoginResponse": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "expires_at"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Segredo Bearer opaco (64 caracteres hexadecimais)."
+          },
+          "token_type": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "const": 3600
+          },
+          "expires_at": {
+            "type": "integer"
+          }
+        }
+      },
+      "AuthPrincipal": {
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "editor",
+              "admin"
+            ]
+          },
+          "expires_at": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token opaco hexadecimal de 256 bits obtido em POST /api/v1/auth/login; valido por 1h."
       }
     }
   }
