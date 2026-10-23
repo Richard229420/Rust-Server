@@ -1,0 +1,12 @@
+[package]
+name = "rust-server-multiprotocolo"
+version = "0.2.2"
+edition = "2021"
+rust-version = "1.85"
+description = "Gateway HTTPS e mensageria TLS TCP/MQTT para o projeto Rust-Server"
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+rustls-pemfile = "2.2"
+rumqttc = { version = "=0.25.1", default-features = false, features = ["use-rustls"] }
+subtle = "2.6.1"

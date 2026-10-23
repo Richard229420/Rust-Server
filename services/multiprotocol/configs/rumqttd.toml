@@ -1,0 +1,21 @@
+# Listener MQTT v3.1.1: apenas TLS em loopback.
+# Certificado e autenticacao injetados em mqtt.rs; nunca colocar senhas aqui.
+id = 0
+
+[router]
+id = 0
+max_connections = 64
+max_outgoing_packet_count = 64
+max_segment_size = 1048576
+max_segment_count = 4
+
+[v4.1]
+name = "mqtt-tls-local"
+listen = "127.0.0.1:8883"
+next_connection_delay_ms = 100
+
+[v4.1.connections]
+connection_timeout_ms = 10000
+max_payload_size = 4096
+max_inflight_count = 20
+dynamic_filters = true
