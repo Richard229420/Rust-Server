@@ -1,0 +1,41 @@
+/target/
+/certs/
+.env
+*.key
+*.pem
+
+# Arquivos gerados pelo Rust
+/target/
+
+# Certificados e chaves TLS locais
+/certs/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Credenciais e variaveis locais
+.env
+.env.*
+!.env.example
+*.token
+
+# Bancos e arquivos temporarios
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+
+# Arquivos do editor
+*.swp
+*.swo
+
+# Backups com data ou timestamp
+*.bak.*
+*.backup
+*.backup.*
+
+# Arquivos compactados locais
+*.zip
+*.tar.gz
