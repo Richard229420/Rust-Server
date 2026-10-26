@@ -137,3 +137,14 @@ O script de setup 8.2 agora se recusa a rodar quando existe `devices.json` para 
 - Execução isolada com contas systemd e teste de recuperação automatizado.
 
 Fontes técnicas: https://mosquitto.org/man/mosquitto-conf-5.html; https://mosquitto.org/man/mosquitto_passwd-1.html; https://mosquitto.org/documentation/authentication-methods/ .
+
+## Revisao final do patch (26/10/2026)
+
+- `src/bridge.rs` evita SUBSCRIBE duplicado, criando inscricoes apenas apos o `ConnAck`, inclusive em reconexoes.
+- `test_phase8_3_devices.sh --revoked` consulta o estado `revoked` no inventario **antes** do teste, para nao confundir uma revogacao recusada com falha da ACL.
+- A tentativa de autenticacao revogada exige erro explicito de autorizacao/CONNACK (MQTT 3.1.1); falhas de rede ou TLS sao inconclusivas, nao aprovadas.
+- O gerenciador valida a propriedade, os links e as permissoes dos arquivos locais. Na revogacao, verifica antecipadamente o arquivo do token local para evitar uma alteracao parcial conhecida quando ele for symlink.
+- Essas melhorias foram verificadas com testes simulados offline e verificacao de sintaxe; **reexecutar os testes MQTT reais no Arch Linux depois da aplicacao**.
+- Ainda nao ha escrita transacional de todo o conjunto `passwords`/`acl`/`devices.json`; em falhas parciais, nao reinicie o broker antes de reconciliar via snapshot privado.
+- Os backups contêm hashes antigos. Proteger o acesso e definir retencao com revisao separada.
+- O TLS e ACL de loopback nao autorizam exposicao direta a LAN/Internet. Este marco nao e uma auditoria de seguranca completa.

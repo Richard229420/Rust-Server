@@ -44,7 +44,15 @@ p.write_text(user+':$mock$'+hashlib.sha256(pwd.encode()).hexdigest()+'\\n')
   cred=(root.parent/'device-tokens/sensor01.token'); assert cred.exists() and cred.stat().st_mode&0o077 == 0
   cmd('create','sensor01',ok=False)
   cmd('create','../evil',ok=False)
-  cmd('rotate','sensor02'); cmd('revoke','sensor01');cmd('list')
+  cmd('rotate','sensor02')
+  # Impedir gravacao parcial ao encontrar token apontando para symlink.
+  safe_token=cred.with_suffix('.safe')
+  cred.rename(safe_token)
+  cred.symlink_to(safe_token)
+  cmd('revoke','sensor01',ok=False)
+  assert json.loads((root/'devices.json').read_text())['devices']['sensor01']['state']=='active'
+  cred.unlink(); safe_token.rename(cred)
+  cmd('revoke','sensor01');cmd('list')
   assert 'device-sensor01:' not in (root/'passwords').read_text()
   assert 'user device-sensor01' not in (root/'acl').read_text()
   assert not cred.exists()
@@ -53,4 +61,10 @@ p.write_text(user+':$mock$'+hashlib.sha256(pwd.encode()).hexdigest()+'\\n')
   # Force inconsistent data and ensure fail-closed.
   (root/'passwords').write_text((root/'passwords').read_text().replace('device-sensor02:', 'device-broken:'))
   cmd('create','sensor03',ok=False)
+  # Diretorio configurado nao pode ser um symlink.
+  symlink_root=Path(tmp)/'linked-mosquitto'
+  symlink_root.symlink_to(root, target_is_directory=True)
+  rejected=subprocess.run([sys.executable,MANAGER,'--mosquitto-dir',str(symlink_root),'list'],
+                          capture_output=True,text=True,env=env)
+  assert rejected.returncode != 0 and 'link simbolico' in rejected.stderr
 print('PASSED: offline mock smoke tests')

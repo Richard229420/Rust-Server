@@ -74,7 +74,10 @@ def secure_dir(path: Path) -> None:
 def check_safe_file(path: Path) -> None:
     if path.is_symlink() or not path.is_file():
         raise Fail(f"Arquivo ausente ou link simbolico nao permitido: {path}")
-    if (path.stat().st_mode & 0o077) != 0:
+    file_stat = path.stat()
+    if file_stat.st_uid != os.geteuid() or file_stat.st_nlink != 1:
+        raise Fail(f"Arquivo {path} deve pertencer ao usuario atual e nao ter hardlinks")
+    if (file_stat.st_mode & 0o077) != 0:
         raise Fail(f"Arquivo {path} nao e privado (chmod 600)")
 
 def atomic_write(path: Path, data: str, mode: int = 0o600) -> None:
@@ -166,7 +169,7 @@ def validate_sync(lines: list[str], devices: dict, acl: str) -> None:
     active = {f"device-{i}" for i, v in devices.items() if v.get("state") == "active"}
     for ident, info in devices.items():
         valid_id(ident)
-        if info.get("state") not in ("active", "revoked"):
+        if not isinstance(info, dict) or info.get("state") not in ("active", "revoked"):
             raise Fail(f"Estado de dispositivo invalido: {ident}")
     if {u for u in users if u.startswith("device-")} != active:
         raise Fail("Inventario e arquivo de senhas divergentes; nao alterar sem reconciliar")
@@ -263,7 +266,10 @@ def main() -> int:
     args = parser.parse_args()
     if os.geteuid() == 0:
         raise Fail("Nao execute o gerenciador com sudo/root")
-    folder = args.mosquitto_dir.expanduser().resolve()
+    input_folder = args.mosquitto_dir.expanduser()
+    if input_folder.is_symlink():
+        raise Fail("Diretorio do Mosquitto nao pode ser um link simbolico")
+    folder = input_folder.resolve()
     secure_dir(folder)
     lock = folder / ".fase83.lock"
     with open(lock, "a+", encoding="utf-8") as handle:
@@ -311,17 +317,21 @@ def main() -> int:
             devices[ident]["state"] = "revoked"
             devices[ident]["updated_at"] = now()
             devices[ident]["revoked_at"] = now()
-        # gerar credencial antes de aplicar o snapshot para evitar gravar estado ativo sem token.
+        # A revogacao nao deve gravar ACL/inventario antes de verificar
+        # se ha uma credencial local insegura. Nao seguir symlinks.
         tokens = folder.parent / "device-tokens"
+        if args.action == "revoke":
+            cred = tokens / f"{ident}.token"
+            if cred.is_symlink():
+                raise Fail("Credencial inesperada como symlink; remova manualmente")
+            if cred.exists():
+                check_safe_file(cred)
+        # gerar credencial antes de aplicar o snapshot para evitar gravar estado ativo sem token.
         if args.action in ("create", "rotate"):
             credential_path = save_token(tokens, ident, secret)
         save(folder, lines, base, conf, meta, label=f"{args.action}-{ident}")
-        if args.action == "revoke":
-            cred = tokens / f"{ident}.token"
-            if cred.exists():
-                if cred.is_symlink():
-                    raise Fail("Credencial inesperada como symlink; remova manualmente")
-                cred.unlink()
+        if args.action == "revoke" and cred.exists():
+            cred.unlink()
         else:
             print(f"Credencial temporaria de entrega: {credential_path} (modo 0600; APAGUE apos provisionar)")
             print(f"Usuario MQTT: {user}")

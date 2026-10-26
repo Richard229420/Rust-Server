@@ -13,11 +13,28 @@ fi
   echo 'ou:  bash scripts/test_phase8_3_devices.sh --revoked sensor01 sensor02' >&2
   exit 1
 }
-for bin in mosquitto_sub mosquitto_pub timeout stdbuf rg mktemp ss; do
+for bin in mosquitto_sub mosquitto_pub timeout stdbuf rg mktemp ss python3; do
   command -v "$bin" >/dev/null || { echo "Dependencia ausente: $bin" >&2; exit 1; }
 done
 : "${RUST_SERVER_MQTT_BRIDGE_PASSWORD:?Execute source scripts/env_phase8.sh antes do teste}"
 ROOT="$HOME/.config/rust-server"
+# Fail closed: rejeita testes feitos antes de aplicar revoke no inventario.
+python3 - "$ROOT/mosquitto/devices.json" "$MODE" "$FIRST" "$SECOND" <<'PY'
+import json
+import pathlib
+import sys
+inventory, mode, first, second = sys.argv[1:]
+try:
+    devices = json.loads(pathlib.Path(inventory).read_text(encoding="utf-8"))["devices"]
+    expected_first = "revoked" if mode == "revoked" else "active"
+    for ident, expected in ((first, expected_first), (second, "active")):
+        actual = devices.get(ident, {}).get("state")
+        if actual != expected:
+            sys.exit(f"PRECONDICAO NAO ATENDIDA: {ident} deve estar {expected}; estado atual={actual!r}. "
+                     "Nao execute o teste antes da alteracao no gerenciador.")
+except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+    sys.exit(f"Nao foi possivel validar o inventario de dispositivos: {exc}")
+PY
 FIRST_FILE="$ROOT/device-tokens/$FIRST.token"
 SECOND_FILE="$ROOT/device-tokens/$SECOND.token"
 [[ -r "$SECOND_FILE" ]] || { echo "Token de $SECOND ausente" >&2; exit 1; }
@@ -96,8 +113,15 @@ if [[ "$MODE" == 'revoked' ]]; then
   publish second "lab/sensors/$SECOND/telemetry" "$unique-active" || { echo 'FALHA: dispositivo ativo' >&2; exit 1; }
   echo '[2/2] Credencial do dispositivo revogado...'
   if [[ -e "$TMP/first.cfg" ]]; then
-    if publish first "lab/sensors/$FIRST/telemetry" "$unique-revoked" > "$TMP/revoked.out" 2>&1; then
+    if timeout 6 mosquitto_pub -d -o "$TMP/first.cfg" \
+       -i "pub-first-$unique" -q 1 -t "lab/sensors/$FIRST/telemetry" \
+       -m "$unique-revoked" > "$TMP/revoked.out" 2>&1; then
       echo 'FALHA: credencial revogada aceita para publicacao!' >&2; exit 1
+    fi
+    # Erro de rede/TLS nao e prova de revogacao: exigir rejeicao explicita.
+    if ! rg -i -q 'CONNACK.*\(5\)|refused.*not authori[sz]ed|not authori[sz]ed.*refused' "$TMP/revoked.out"; then
+      echo 'INCONCLUSIVO: cliente falhou, mas nao demonstrou rejeicao de autenticacao.' >&2
+      exit 2
     fi
     echo 'APROVADO: login revogado rejeitado, conta restante ativa.'
   else

@@ -108,12 +108,8 @@ pub fn start(bus: Arc<Bus>, broker: SocketAddr, ca_cert: &Path, password: &str) 
     options.set_max_packet_size(8192, 8192);
     options.set_clean_session(true);
     let (client, mut connection) = Client::new(options, MQTT_CLIENT_QUEUE_SIZE);
-    // Registro antes do polling da conexao: a inscricao inicial e enfileirada.
-    for topic in INBOUND_FILTERS {
-        client
-            .subscribe(topic, QoS::AtMostOnce)
-            .map_err(io::Error::other)?;
-    }
+    // O ConnAck agenda as assinaturas tanto na conexao inicial quanto apos
+    // reconexao. Nao enfileirar SUBSCRIBE aqui para evitar assinaturas duplicadas.
 
     let (tx, rx) = mpsc::sync_channel::<BridgeMessage>(BRIDGE_QUEUE_SIZE);
     let publisher = client.clone();
