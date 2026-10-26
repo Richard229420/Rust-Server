@@ -1,0 +1,80 @@
+name: Rust Server CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-server-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seguranca:
+    name: Seguranca - arquivos e testes offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Obter codigo sem manter credenciais Git
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Bloquear arquivos sensiveis versionados
+        run: python3 scripts/ci/check_sensitive_files.py
+      - name: Testar gerenciador da Fase 8.3 (sem segredos)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
+
+  rust:
+    name: Rust - ${{ matrix.nome }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nome: servidor-http
+            manifest: Cargo.toml
+          - nome: multiprotocolo
+            manifest: services/multiprotocol/Cargo.toml
+    steps:
+      - name: Obter codigo sem manter credenciais Git
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Preparar dependencias do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev
+      - name: Fixar Rust 1.99.0 com fmt e clippy
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.99.0
+      - name: Verificar formatacao
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo fmt --manifest-path "$MANIFEST" --all -- --check
+      - name: Conferir compilacao de todos os alvos
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo check --manifest-path "$MANIFEST" --all-targets --locked
+      - name: Clippy estrito
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo clippy --manifest-path "$MANIFEST" --all-targets --locked -- -D warnings
+      - name: Rodar testes Rust
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo test --manifest-path "$MANIFEST" --all-targets --locked
