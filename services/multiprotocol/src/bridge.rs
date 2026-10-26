@@ -26,7 +26,36 @@ const MQTT_CLIENT_QUEUE_SIZE: usize = 32;
 
 // Regra explicita de topicos que podem atravessar a bridge. NAO e ACL do broker MQTT.
 fn allowed_bridge_topic(topic: &str) -> bool {
-    messaging::bridge_topic_allowed(topic)
+    if !messaging::bridge_topic_allowed(topic) {
+        return false;
+    }
+    if let Some(rest) = topic.strip_prefix("sensors/") {
+        // Fase 8.3: os sensores possuem namespace individual.
+        // Formato: sensors/<identificador>/<canal>[/subcanal...]
+        // A identidade MQTT e garantida pelo broker; aqui validamos a rota
+        // novamente como defesa em profundidade, sem substituir sua ACL.
+        let mut parts = rest.split('/');
+        let (Some(id), Some(channel)) = (parts.next(), parts.next()) else {
+            return false;
+        };
+        let id_ok = (3..=32).contains(&id.len())
+            && id.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+            && id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && !id.ends_with('-')
+            && !id.contains("--");
+        let channels_ok = std::iter::once(channel).chain(parts).all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        });
+        return id_ok && channels_ok;
+    }
+    true
 }
 
 fn incoming(topic: &str, payload: &[u8], retained: bool) -> Option<(String, String)> {
@@ -162,8 +191,8 @@ mod tests {
             Some(("alerts".to_owned(), "servidor online".to_owned()))
         );
         assert_eq!(
-            incoming("lab/sensors/temp", b"25", false),
-            Some(("sensors/temp".to_owned(), "25".to_owned()))
+            incoming("lab/sensors/sensor01/temperature", b"25", false),
+            Some(("sensors/sensor01/temperature".to_owned(), "25".to_owned()))
         );
     }
 
@@ -177,6 +206,34 @@ mod tests {
         assert!(incoming("lab/", b"x", false).is_none());
         assert!(incoming("lab/alerts", &[0xff], false).is_none());
         assert!(incoming("lab/alerts", &vec![b'x'; 2049], false).is_none());
+    }
+
+    #[test]
+    fn sensores_exigem_identidade_e_canal_validos() {
+        for topic in [
+            "lab/sensors/temp",
+            "lab/sensors/sensor01",
+            "lab/sensors/ab/temperature",
+            "lab/sensors/Sensor01/temperature",
+            "lab/sensors/sensor01/../admin",
+            "lab/sensors/sensor01/./metrics",
+            "lab/sensors/sensor--01/temperature",
+            "lab/sensors/sensor01/temperature/#",
+            "lab/sensors/sensor01//temperature",
+        ] {
+            assert!(incoming(topic, b"25", false).is_none(), "aceitou {topic}");
+        }
+        assert!(incoming("lab/sensors/sensor01/temperature", b"25", false).is_some());
+        assert!(outgoing(&BridgeMessage {
+            topic: "sensors/sensor01/status".to_string(),
+            body: "ok".to_string(),
+        })
+        .is_some());
+        assert!(outgoing(&BridgeMessage {
+            topic: "sensors/../admin".to_string(),
+            body: "ok".to_string(),
+        })
+        .is_none());
     }
 
     #[test]
