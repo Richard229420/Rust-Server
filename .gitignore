@@ -25,3 +25,28 @@ __pycache__/
 # Arquivos temporarios
 *.tmp
 *.swp
+
+# >>> Rust-Server Fase 8.3: materiais gerados e dados sigilosos >>>
+**/target/
+**/certs/
+**/device-tokens/
+**/backups-fase8-3/
+**/.config/rust-server/
+**/scripts/env_phase8.sh
+.env
+.env.*
+!.env.example
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/__pycache__/
+**/*.pyc
+# <<< Rust-Server Fase 8.3 <<<
+
+# Credenciais privadas da Fase 8
+/services/multiprotocol/scripts/env_phase8.sh
