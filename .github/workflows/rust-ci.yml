@@ -11,6 +11,7 @@ on:
   pull_request:
     branches:
       - main
+      - 'feature/**'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +37,15 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
+      - name: Testar gerenciador da Fase 8.3
+        env:
+          PYTHONTDONWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
+      - name: Testar laboratio DynSec da fase 8.4.2
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_2_lab.py
+
 
   rust:
     name: Rust - ${{ matrix.nome }}
