@@ -37,11 +37,11 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
-      - name: Testar gerenciador da Fase 8.3
+      - name: Testar inventario e backup da Fase 8.4.1
         env:
-          PYTHONTDONWRITEBYTECODE: '1'
-        run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
-      - name: Testar laboratio DynSec da fase 8.4.2
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_1_snapshot.py
+      - name: Testar laboratorio DynSec da Fase 8.4.2
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_fase8_4_2_lab.py
