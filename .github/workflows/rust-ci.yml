@@ -46,6 +46,16 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_fase8_4_2_lab.py
 
+      - name: Testar correcao TLS CA da Fase 8.4.4
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_4_corrigir_ca.py
+
+      - name: Testar rotacao e revogacao 8.4.4 offline
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_4_online.py
+
 
   rust:
     name: Rust - ${{ matrix.nome }}

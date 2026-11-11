@@ -105,13 +105,19 @@ def prepare() -> None:
     init_dirs()
     pki = ROOT / "pki"
     # CA e certificado de servidor EXCLUSIVOS do laboratorio (nao reutilizam a CA da 8.3).
+    # Python >= 3.13 ativa X509_STRICT: uma CA deve ter keyUsage=keyCertSign.
+    # Registrar extensoes explicitas em vez de depender dos defaults do OpenSSL.
+    safe_write(pki / "ca.cnf", "[ req ]\nprompt = no\ndistinguished_name = dn\nx509_extensions = v3_ca\n"
+               "[ dn ]\nCN = Rust-Server MQTT Lab CA 8.4.2\n"
+               "[ v3_ca ]\nsubjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid:always\n"
+               "basicConstraints = critical, CA:TRUE\nkeyUsage = critical, keyCertSign, cRLSign\n")
     command(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", "-days", "30",
-             "-subj", "/CN=Rust-Server MQTT Lab CA 8.4.2", "-keyout", str(pki / "ca.key"),
-             "-out", str(pki / "ca.crt")])
+             "-config", str(pki / "ca.cnf"), "-extensions", "v3_ca",
+             "-keyout", str(pki / "ca.key"), "-out", str(pki / "ca.crt")])
     command(["openssl", "req", "-new", "-newkey", "rsa:2048", "-sha256", "-nodes",
              "-subj", "/CN=localhost", "-keyout", str(pki / "server.key"),
              "-out", str(pki / "server.csr")])
-    safe_write(pki / "san.cnf", "subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n")
+    safe_write(pki / "san.cnf", "subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n")
     command(["openssl", "x509", "-req", "-in", str(pki / "server.csr"), "-CA", str(pki / "ca.crt"),
              "-CAkey", str(pki / "ca.key"), "-CAcreateserial", "-out", str(pki / "server.crt"),
              "-days", "30", "-sha256", "-extfile", str(pki / "san.cnf")])

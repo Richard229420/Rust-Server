@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -101,6 +102,12 @@ class LabTests(unittest.TestCase):
         self.assertNotIn('/home/arch/server', cfg)
         lab.check_private(self.root / 'pki/ca.key')
         lab.check_private(self.root / 'dynamic-security.json')
+        # Os novos certificados devem passar verificacao X509 estrita.
+        verified = subprocess.run(['openssl','verify','-x509_strict',
+                                   '-CAfile',str(self.root/'pki/ca.crt'),
+                                   '-verify_hostname','localhost',str(self.root/'pki/server.crt')],
+                                  capture_output=True, text=True, check=False)
+        self.assertEqual(verified.returncode, 0, verified.stderr)
 
     def test_provisiona_acl_deny_e_credenciais_em_arquivo_privado(self):
         self.make_lab()

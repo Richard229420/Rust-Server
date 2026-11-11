@@ -47,6 +47,15 @@ __pycache__/
 **/__pycache__/
 **/*.pyc
 # <<< Rust-Server Fase 8.3 <<<
+# Fase 8.4 - Material privador do laboratório
+**/phase8-4-2-lab/
+**backups-fase8-4*/
+**/device-tokens/
+**/*.opt
+**/dynsec.json
+**/dymanimc-security.json
 
 # Credenciais privadas da Fase 8
 /services/multiprotocol/scripts/env_phase8.sh
+**/*.opts
+**/dynamic-security.json

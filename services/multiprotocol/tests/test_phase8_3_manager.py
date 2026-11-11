@@ -1,6 +1,32 @@
 from pathlib import Path
 import tempfile, subprocess, os, sys, json, shutil, re
 MANAGER=str(Path(__file__).resolve().parents[1] / 'scripts/gerenciar_dispositivos_fase8_3.py')
+# Executa o gerenciador em um processo de teste isolado. A sonda da porta
+# 8883 recebe um ECONNREFUSED simulado, mesmo quando o broker real esta ativo.
+# Nao muda o gerenciador de producao nem a sua protecao offline.
+MOCKED_MANAGER_RUNNER = r"""
+import importlib.util, json, os, socket, subprocess, sys
+from pathlib import Path
+manager_path = Path(sys.argv[1]).resolve()
+assert sys.argv[2] == '--mosquitto-dir', 'Opcao de diretorio de teste obrigatoria'
+expected = Path(os.environ['PHASE83_TEST_MOCK_ROOT']).resolve()
+actual = Path(sys.argv[3]).resolve()
+test_home = Path(os.environ['HOME']).resolve()
+assert actual == expected and test_home in actual.parents, 'Diretorio de teste nao e temporario'
+spec = importlib.util.spec_from_file_location('phase83_manager_test_only', manager_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+def mocked_connect(address, *args, **kwargs):
+    assert address == ('127.0.0.1', 8883), 'Conexao de rede inesperada no teste simulado'
+    raise ConnectionRefusedError('Porta 8883 simulada offline apenas neste teste')
+mod.socket.create_connection = mocked_connect
+sys.argv = [str(manager_path), *sys.argv[2:]]
+try:
+    sys.exit(mod.main())
+except (mod.Fail, OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+    print(f'ERRO: {exc}', file=sys.stderr)
+    sys.exit(1)
+"""
 BASE='''# Política de menor privilégio: nenhum tópico fora das regras é autorizado.
 user bridge
 topic read lab/alerts
@@ -26,8 +52,9 @@ p=pathlib.Path(sys.argv[2]); text=p.read_text(); user,pwd=text.rstrip().split(':
 p.write_text(user+':$mock$'+hashlib.sha256(pwd.encode()).hexdigest()+'\\n')
 '''); exe.chmod(0o755)
   env=os.environ.copy();env['PATH']=str(bin)+':'+env['PATH']; env['HOME']=tmp
+  env['PHASE83_TEST_MOCK_ROOT']=str(root)
   def cmd(*args, ok=True):
-    c=subprocess.run([sys.executable,MANAGER,'--mosquitto-dir',str(root),*args],capture_output=True,text=True,env=env)
+    c=subprocess.run([sys.executable,'-c',MOCKED_MANAGER_RUNNER,MANAGER,'--mosquitto-dir',str(root),*args],capture_output=True,text=True,env=env)
     print(args, 'RC=',c.returncode, c.stdout.strip(),c.stderr.strip())
     assert (c.returncode==0) == ok
     return c
