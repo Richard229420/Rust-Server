@@ -56,6 +56,20 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_fase8_4_4_online.py
 
+      - name: Ensaio isolado 8.4.5.3 (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_3_ensaio.py
+
+      - name: Paridade de seguranca 8.4.5.4 (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_4_paridade.py
+
+      - name: Prontidao sem corte 8.4.5.4-C (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_4c_prontidao_corte.py
 
   rust:
     name: Rust - ${{ matrix.nome }}
