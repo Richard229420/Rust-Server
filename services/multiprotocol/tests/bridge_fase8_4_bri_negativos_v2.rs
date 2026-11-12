@@ -115,17 +115,16 @@ fn pump(mut conn: Connection) -> mpsc::Receiver<Seen> {
 
 fn wait_suback(rx: &mpsc::Receiver<Seen>, label: &str) -> bool {
     let end = Instant::now() + Duration::from_secs(8);
-    loop {
-        let remaining = end.saturating_duration_since(Instant::now());
-        assert!(!remaining.is_zero(), "{label}: faltou SUBACK");
-        match rx.recv_timeout(remaining).expect("SUBACK nao chegou") {
-            Seen::SubAck { denied, count } => {
-                assert_eq!(count, 1, "{label}: resultado inesperado");
-                return denied;
-            }
-            Seen::Error => panic!("{label}: erro MQTT antes do SUBACK"),
-            other => panic!("{label}: evento inesperado {other:?}"),
+    let remaining = end.saturating_duration_since(Instant::now());
+    assert!(!remaining.is_zero(), "{label}: faltou SUBACK");
+
+    match rx.recv_timeout(remaining).expect("SUBACK nao chegou") {
+        Seen::SubAck { denied, count } => {
+            assert_eq!(count, 1, "{label}: resultado inesperado");
+            denied
         }
+        Seen::Error => panic!("{label}: erro MQTT antes do SUBACK"),
+        other => panic!("{label}: evento inesperado {other:?}"),
     }
 }
 
@@ -186,8 +185,7 @@ fn acl_entrega_negada() {
 
     // Controle positivo: broker realmente entregou a publicacao ao leitor autorizado.
     let end = Instant::now() + Duration::from_secs(8);
-    let mut seen = false;
-    while Instant::now() < end {
+    let seen = if Instant::now() < end {
         match aud_rx.recv_timeout(end.saturating_duration_since(Instant::now())) {
             Ok(Seen::Publish {
                 topic,
@@ -195,29 +193,30 @@ fn acl_entrega_negada() {
             }) => {
                 assert_eq!(topic, "bus/alerts");
                 assert_eq!(got.as_slice(), payload.as_bytes());
-                seen = true;
-                break;
+                true
             }
             Ok(Seen::Error) => panic!("auditor perdeu a conexao"),
             Ok(other) => panic!("auditor recebeu evento inesperado: {other:?}"),
-            Err(_) => break,
+            Err(_) => false,
         }
-    }
+    } else {
+        false
+    };
+
     assert!(seen, "controle positivo: auditor nao recebeu a publicacao");
 
     // Controle da publicacao: QoS1 confirmou a operacao (nao seria suficiente sozinho).
     let end = Instant::now() + Duration::from_secs(8);
-    loop {
-        let remain = end.saturating_duration_since(Instant::now());
-        assert!(!remain.is_zero(), "faltou PUBACK");
-        match bridge_rx
-            .recv_timeout(remain)
-            .expect("publisher nao recebeu PUBACK")
-        {
-            Seen::PubAck => break,
-            Seen::Error => panic!("publisher desconectado"),
-            other => panic!("publisher recebeu evento inesperado: {other:?}"),
-        }
+    let remain = end.saturating_duration_since(Instant::now());
+    assert!(!remain.is_zero(), "faltou PUBACK");
+
+    match bridge_rx
+        .recv_timeout(remain)
+        .expect("publisher nao recebeu PUBACK")
+    {
+        Seen::PubAck => {}
+        Seen::Error => panic!("publisher desconectado"),
+        other => panic!("publisher recebeu evento inesperado: {other:?}"),
     }
 
     // Controle negativo: o cliente sem READ nao pode receber a MESMA mensagem.
