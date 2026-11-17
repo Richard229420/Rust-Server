@@ -71,6 +71,16 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -B services/multiprotocol/tests/test_fase8_4_5_4c_prontidao_corte.py
 
+
+      - name: Testar preparacao e reconciliacao PKI 8.4.5.5A (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -B -m unittest discover \
+            -s services/multiprotocol/tests \
+            -p 'test_fase8_4_5_5a*.py' \
+            -v
+
   rust:
     name: Rust - ${{ matrix.nome }}
     runs-on: ubuntu-24.04
