@@ -1,0 +1,16 @@
+# TEMPLATE NAO OPERACIONAL - NAO INSTALAR DIRETAMENTE
+[Unit]
+Description=Rust-Server MQTT Lab 8884 - Template DR
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/false
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
