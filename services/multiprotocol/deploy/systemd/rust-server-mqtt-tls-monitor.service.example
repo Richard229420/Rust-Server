@@ -1,0 +1,7 @@
+# TEMPLATE NAO OPERACIONAL - NAO INSTALAR DIRETAMENTE
+[Unit]
+Description=Rust-Server MQTT TLS Monitor - Template DR
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/false

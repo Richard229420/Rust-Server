@@ -1,0 +1,12 @@
+# TEMPLATE NAO OPERACIONAL - NAO INSTALAR DIRETAMENTE
+[Unit]
+Description=Rust-Server MQTT TLS Monitor Timer - Template DR
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+AccuracySec=5min
+Unit=rust-server-mqtt-tls-monitor.service
+
+[Install]
+WantedBy=timers.target

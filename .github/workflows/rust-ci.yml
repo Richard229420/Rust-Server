@@ -1,0 +1,133 @@
+name: Rust Server CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'hotfix/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - 'feature/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-server-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  seguranca:
+    name: Seguranca - arquivos e testes offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Obter codigo sem manter credenciais Git
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Bloquear arquivos sensiveis versionados
+        run: python3 scripts/ci/check_sensitive_files.py
+      - name: Testar gerenciador da Fase 8.3 (sem segredos)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_phase8_3_manager.py
+      - name: Testar inventario e backup da Fase 8.4.1
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_1_snapshot.py
+      - name: Testar laboratorio DynSec da Fase 8.4.2
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_2_lab.py
+
+      - name: Testar correcao TLS CA da Fase 8.4.4
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_4_corrigir_ca.py
+
+      - name: Testar rotacao e revogacao 8.4.4 offline
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_4_online.py
+
+      - name: Ensaio isolado 8.4.5.3 (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_3_ensaio.py
+
+      - name: Paridade de seguranca 8.4.5.4 (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_4_paridade.py
+
+      - name: Prontidao sem corte 8.4.5.4-C (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -B services/multiprotocol/tests/test_fase8_4_5_4c_prontidao_corte.py
+
+
+      - name: Validar modelos systemd DR-05 (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -B -m unittest discover \
+            -s services/multiprotocol/tests \
+            -p 'test_dr_05_systemd.py' \
+            -v
+
+      - name: Testar preparacao e reconciliacao PKI 8.4.5.5A (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 -B -m unittest discover \
+            -s services/multiprotocol/tests \
+            -p 'test_fase8_4_5_5a*.py' \
+            -v
+
+  rust:
+    name: Rust - ${{ matrix.nome }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nome: servidor-http
+            manifest: Cargo.toml
+          - nome: multiprotocolo
+            manifest: services/multiprotocol/Cargo.toml
+    steps:
+      - name: Obter codigo sem manter credenciais Git
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Preparar dependencias do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev
+      - name: Fixar Rust 1.99.0 com fmt e clippy
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.99.0
+      - name: Verificar formatacao
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo fmt --manifest-path "$MANIFEST" --all -- --check
+      - name: Conferir compilacao de todos os alvos
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo check --manifest-path "$MANIFEST" --all-targets --locked
+      - name: Clippy estrito
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo clippy --manifest-path "$MANIFEST" --all-targets --locked -- -D warnings
+      - name: Rodar testes Rust
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+        run: cargo test --manifest-path "$MANIFEST" --all-targets --locked

@@ -22,6 +22,11 @@ for value in "$PWD" "$HOME"; do
   fi
 done
 MQTT_DIR="$SECRET_DIR/mosquitto"
+if [[ -f "$MQTT_DIR/devices.json" ]]; then
+  echo 'ERRO: Fase 8.3 ativa; nao execute setup_phase8_2_mosquitto.sh, pois apagaria contas e ACLs de dispositivos.' >&2
+  echo 'Use python3 scripts/gerenciar_dispositivos_fase8_3.py list/create/rotate/revoke.' >&2
+  exit 1
+fi
 mkdir -p "$MQTT_DIR"
 chmod 700 "$MQTT_DIR"
 # Senhas planas existem brevemente somente em tmpfs privada, NÃO em argumentos do processo.
